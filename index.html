@@ -1,0 +1,307 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <title>three.js webgl - materials - dynamic cube reflection</title>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, user-scalable=no, minimum-scale=1.0, maximum-scale=1.0">
+    <style>
+      body {
+        background-color: #000000;
+        margin: 0px;
+        overflow: hidden;
+      }
+
+      #info {
+        position: absolute
+        top: 0px; width: 100%;
+        color: #ffffff;
+        padding: 5px;
+        font-family:Monospace;
+        font-size:13px;
+        font-weight: bold;
+        text-align:center;
+      }
+
+      a {
+        color: #ffffff;
+      }
+    </style>
+  </head>
+  <body>
+
+    <script src="http://cdnjs.cloudflare.com/ajax/libs/three.js/r69/three.js"></script>
+
+    <script>
+      //Global scope variables
+      var camera, scene, renderer, mouse = {}
+      var cube, cubeRotation = new THREE.Vector3(0,0,0)
+
+      var fov = 45,
+      isUserInteracting = false,
+      onMouseDownMouseX = 0, onMouseDownMouseY = 0,
+      lon = 0, onMouseDownLon = 0,
+      lat = 0, onMouseDownLat = 0,
+      phi = 0, theta = 0
+
+
+      var path = 'textures/',
+        format = '.png',
+        roomFiles = [
+          path + 'x_plus' + format, path + 'x_minus' + format,
+          path + 'y_plus' + format, path + 'y_minus' + format,
+          path + 'z_plus' + format, path + 'z_minus' + format,
+        ],
+        cubeNormalFile = path + 'dice_normalmap.jpg',
+        cubeDiffuseFile = path + 'dice_normalmap.png',
+        cubeDispFile = path + 'dice_dispmap.png'
+
+      var roomTexture = THREE.ImageUtils.loadTextureCube(
+        roomFiles, 
+        new THREE.UVMapping(), 
+        function () {
+          init()
+          animate()
+        }
+      )
+
+      function init() {
+
+        camera = new THREE.PerspectiveCamera( fov, window.innerWidth / window.innerHeight, 1, 1000 )
+
+        scene = new THREE.Scene()
+
+        var ambientLight = new THREE.AmbientLight(0x222222)
+        scene.add(ambientLight);
+        var lightsPos = [
+          {x: -200, z: -200},
+          {x: -200, z: 0},
+          {x: -200, z: 200},
+          {x: 200, z: -200},
+          {x: 200, z: 0},
+          {x: 200, z: 200},
+          {x: 0, z: 0}
+        ]
+        for (var i = 0; i < 7; i++) {
+          var light = new THREE.PointLight(0xeef7ff)
+          light.position.y = 250
+          light.position.x = lightsPos[i].x
+          light.position.z = lightsPos[i].z
+          light.distance = 400
+          scene.add(light)
+        }
+
+        var roomShader = THREE.ShaderLib["cube"]
+        roomShader.uniforms[ "tCube" ].value = roomTexture
+
+        var roomMaterial = new THREE.ShaderMaterial({
+          fragmentShader: roomShader.fragmentShader,
+          vertexShader: roomShader.vertexShader,
+          uniforms: roomShader.uniforms,
+          depthWrite: false,
+          side: THREE.BackSide
+        }),
+        roomMesh = new THREE.Mesh(new THREE.BoxGeometry(500, 500, 500), roomMaterial)
+
+        scene.add(roomMesh)
+
+        var cubeShader = THREE.ShaderLib["normalmap"]
+        cubeShader.uniforms["enableAO"].value = false
+        cubeShader.uniforms["enableDiffuse"].value = true
+        cubeShader.uniforms["enableSpecular"].value = false
+        cubeShader.uniforms["enableReflection"].value = true
+        cubeShader.uniforms["enableDisplacement"].value = true
+        cubeShader.uniforms[ "uNormalScale" ].value.y = -1
+        cubeShader.uniforms[ "reflectivity" ].value = 0.2
+        cubeShader.uniforms["tNormal"].value = THREE.ImageUtils.loadTexture(cubeNormalFile)
+        cubeShader.uniforms["tDiffuse"].value = THREE.ImageUtils.loadTexture(cubeDiffuseFile)
+        cubeShader.uniforms["tDisplacement"].value = THREE.ImageUtils.loadTexture(cubeDispFile)
+        cubeShader.uniforms[ "tCube" ].value = roomTexture;
+        cubeShader.uniforms["diffuse"].value = new THREE.Color(1, 1, 1)
+        //cubeShader.uniforms[ "uDisplacementBias" ].value = -1.428408;
+        //cubeShader.uniforms[ "uDisplacementScale" ].value = 22.436143;
+
+
+        //cubeShader = THREE.ShaderLib['basic']
+        //cubeShader.uniforms["diffuse"].value = new THREE.Color(1, 1, 1)
+        var cubeMaterial = new THREE.ShaderMaterial({
+          fragmentShader: cubeShader.fragmentShader,
+          vertexShader: cubeShader.vertexShader,
+          uniforms: cubeShader.uniforms,
+          lights: true,
+          fog: false
+        }),
+        cubeMesh = new THREE.Mesh(new THREE.BoxGeometry(30,30,30), cubeMaterial)
+        
+        var stepu = 1.0 / 3, stepv = 1.0 / 2
+        for (var i = 0, k = 0; i < 3; i++) {
+          for (var j = 0; j < 2; j++) {
+            var u = i * 1.0 / 3 , v = j * 1.0 / 2 
+            
+            cubeMesh.geometry.faceVertexUvs[0][k++] = [
+              new THREE.Vector2(u, v + stepv),
+              new THREE.Vector2(u, v),
+              new THREE.Vector2(u + stepu, v + stepv)
+            ]
+  
+            cubeMesh.geometry.faceVertexUvs[0][k++] = [
+              new THREE.Vector2(u, v),
+              new THREE.Vector2(u + stepu, v),
+              new THREE.Vector2(u + stepu, v + stepv)
+            ]
+               
+          }
+        }
+        cubeMesh.geometry.uvsNeedUpdate = true
+        cubeMesh.geometry.computeTangents()
+        //No need to use negative w for cube (works incorrect for normalmap shader)
+        cubeMesh.geometry.faces.forEach(function(face) {
+          face.vertexTangents.forEach(function(vector) {
+            if (vector.w < 0.0) {
+              vector.w *= -1
+              vector.x *= -1
+              vector.y *= -1
+              vector.z *= -1
+            }
+        })})
+        cubeMesh.geometry.tangentsNeedUpdate = true
+
+        cube = cubeMesh
+        scene.add(cubeMesh)
+
+        renderer = new THREE.WebGLRenderer({antialias: true})
+        renderer.setSize( window.innerWidth, window.innerHeight)
+
+        document.body.appendChild(renderer.domElement)
+        document.addEventListener('mousedown', onDocumentMouseDown, false)
+        document.addEventListener('mousewheel', onDocumentMouseWheel, false)
+        document.addEventListener('DOMMouseScroll', onDocumentMouseWheel, false)
+        window.addEventListener( 'resize', onWindowResized, false)
+
+        //setInterval(decideCubeRotation, 200)
+
+        onWindowResized( null )
+      }
+
+      function onWindowResized(event) {
+
+        renderer.setSize( window.innerWidth, window.innerHeight )
+        camera.projectionMatrix.makePerspective( fov, window.innerWidth / window.innerHeight, 1, 1100)
+      }
+
+      function onDocumentClick(event) {
+        var r = decideCubeRotation({x: event.x, y:event.y})
+        rotateCube(r, 0.5)
+      }
+
+      function onDocumentMouseDown(event) {
+        mouseDownStart = event.timeStamp
+        event.preventDefault()
+
+        onPointerDownPointerX = event.clientX
+        onPointerDownPointerY = event.clientY
+
+        onPointerDownLon = lon
+        onPointerDownLat = lat
+
+        document.addEventListener( 'mousemove', onDocumentMouseMove, false )
+        document.addEventListener( 'mouseup', onDocumentMouseUp, false )
+
+      }
+
+      function onDocumentMouseMove(event) {
+        lon = ( event.clientX - onPointerDownPointerX ) * 0.1 + onPointerDownLon
+        lat = ( event.clientY - onPointerDownPointerY ) * 0.1 + onPointerDownLat
+      }
+
+      function decideCubeRotation(mouse) {
+         var steph = window.innerHeight / 3,
+           stepw = window.innerWidth / 3
+         var cubeRotation = new THREE.Vector3(0,0,0)
+
+        //first vertical column
+        if (mouse.x < stepw)
+         cubeRotation.y = -Math.PI / 2.0
+        else
+          if (mouse.x > stepw * 2)
+            cubeRotation.y = Math.PI  / 2.0
+        //first horizontal row
+        if (mouse.y < steph)
+          cubeRotation.z = -Math.PI / 2.0
+        else
+          if (mouse.y > steph * 2)
+            cubeRotation.z = Math.PI / 2.0
+
+          return cubeRotation
+      }
+
+      function onDocumentMouseUp(event) {
+        if (event.timeStamp - mouseDownStart < 310) {
+          onDocumentClick(event)
+        }
+        document.removeEventListener('mousemove', onDocumentMouseMove, false )
+        document.removeEventListener('mouseup', onDocumentMouseUp, false )
+
+      }
+
+      function onDocumentMouseWheel(event) {
+        // WebKit
+        if ( event.wheelDeltaY ) {
+          fov -= event.wheelDeltaY * 0.05
+        // Opera / Explorer 9
+        } else if ( event.wheelDelta ) {
+          fov -= event.wheelDelta * 0.05
+        // Firefox
+        } else if ( event.detail ) {
+          fov += event.detail * 1.0
+        }
+
+        camera.projectionMatrix.makePerspective( fov, window.innerWidth / window.innerHeight, 1, 1100 )
+      }
+
+      function animate() {
+        requestAnimationFrame( animate )
+        render()
+      }
+
+     function rotateCube(vec, duration) {
+        var self = this
+        if (self.completed >= 0)
+          return
+        (function() {
+          var steps = duration / 0.025
+          var step = {x:vec.x / steps, y:vec.y / steps, z:vec.z / steps}
+          self.completed = steps
+          var interval = setInterval(function() {
+            if (self.completed-- <= 0) {
+              clearInterval(interval)
+              return
+            }
+            cube.rotation.x += step.x
+            cube.rotation.y += step.y
+            cube.rotation.z += step.z
+          }, 25)
+        })()
+      }
+
+      function render() {
+        var time = Date.now()
+
+        //lon += .15
+
+        lat = Math.max(-85, Math.min(85, lat))
+        phi = THREE.Math.degToRad(90 - lat)
+        theta = THREE.Math.degToRad(lon)
+
+        camera.position.x = 100 * Math.sin(phi) * Math.cos(theta)
+        camera.position.y = 100 * Math.cos(phi)
+        camera.position.z = 100 * Math.sin(phi) * Math.sin(theta)
+
+        camera.lookAt(scene.position)
+
+        renderer.render(scene, camera)
+
+      }
+    </script>
+
+  </body>
+</html>
