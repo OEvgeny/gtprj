@@ -28,13 +28,14 @@
     </style>
   </head>
   <body>
-
+    <div style="position: absolute; z-index:10; bottom: 0; left:0; right: 0; color: white; text-align: center; cursor: default;"><span> Press C to toggle normal direction. <br> Original demo by Matyushichev Constantine <br>&copy; 2015 by Olonov Evgeniy. <a href="https://github.com/OEvgeny/gtprj">GitHub</a></span></div>
     <script src="http://cdnjs.cloudflare.com/ajax/libs/three.js/r69/three.js"></script>
-
     <script>
       //Global scope variables
       var camera, scene, renderer, mouse = {}
       var cube, cubeRotation = new THREE.Vector3(0,0,0)
+      
+      window.cube = cube
 
       var fov = 45,
       isUserInteracting = false,
@@ -47,13 +48,13 @@
       var path = 'textures/',
         format = '.png',
         roomFiles = [
-          path + 'x_plus' + format, path + 'x_minus' + format,
+          path + 'x_minus' + format, path + 'x_plus' + format,
           path + 'y_plus' + format, path + 'y_minus' + format,
           path + 'z_plus' + format, path + 'z_minus' + format,
         ],
-        cubeNormalFile = path + 'dice_normalmap.jpg',
-        cubeDiffuseFile = path + 'dice_normalmap.png',
-        cubeDispFile = path + 'dice_dispmap.png'
+        cubeNormalFile = path + 'normal.png',
+        cubeDiffuseFile = path + 'diffuse.jpg'
+        //cubeDispFile = path + 'dice_dispmap.png'
 
       var roomTexture = THREE.ImageUtils.loadTextureCube(
         roomFiles, 
@@ -74,19 +75,19 @@
         scene.add(ambientLight);
         var lightsPos = [
           {x: -200, z: -200},
-          {x: -200, z: 0},
+          {x: -200, z: 0, distance: 320},
           {x: -200, z: 200},
           {x: 200, z: -200},
-          {x: 200, z: 0},
+          {x: 200, z: 0, distance: 320},
           {x: 200, z: 200},
-          {x: 0, z: 0}
+          {x: 0, z: 0, distance: 250}
         ]
-        for (var i = 0; i < 7; i++) {
+        for (var i = 0; i < lightsPos.length; i++) {
           var light = new THREE.PointLight(0xeef7ff)
-          light.position.y = 250
+          light.position.y = 130
           light.position.x = lightsPos[i].x
           light.position.z = lightsPos[i].z
-          light.distance = 400
+          light.distance = lightsPos[i].distance || 420
           scene.add(light)
         }
 
@@ -109,20 +110,20 @@
         cubeShader.uniforms["enableDiffuse"].value = true
         cubeShader.uniforms["enableSpecular"].value = false
         cubeShader.uniforms["enableReflection"].value = true
-        cubeShader.uniforms["enableDisplacement"].value = true
+        //cubeShader.uniforms["enableDisplacement"].value = false
         cubeShader.uniforms[ "uNormalScale" ].value.y = -1
-        cubeShader.uniforms[ "reflectivity" ].value = 0.2
+        cubeShader.uniforms[ "reflectivity" ].value = 0.01
+        cubeShader.uniforms[ "shininess" ].value = 200
         cubeShader.uniforms["tNormal"].value = THREE.ImageUtils.loadTexture(cubeNormalFile)
         cubeShader.uniforms["tDiffuse"].value = THREE.ImageUtils.loadTexture(cubeDiffuseFile)
-        cubeShader.uniforms["tDisplacement"].value = THREE.ImageUtils.loadTexture(cubeDispFile)
+        //cubeShader.uniforms["tDisplacement"].value = THREE.ImageUtils.loadTexture(cubeDispFile)
         cubeShader.uniforms[ "tCube" ].value = roomTexture;
         cubeShader.uniforms["diffuse"].value = new THREE.Color(1, 1, 1)
         //cubeShader.uniforms[ "uDisplacementBias" ].value = -1.428408;
         //cubeShader.uniforms[ "uDisplacementScale" ].value = 22.436143;
 
+        window.cubeShader = cubeShader
 
-        //cubeShader = THREE.ShaderLib['basic']
-        //cubeShader.uniforms["diffuse"].value = new THREE.Color(1, 1, 1)
         var cubeMaterial = new THREE.ShaderMaterial({
           fragmentShader: cubeShader.fragmentShader,
           vertexShader: cubeShader.vertexShader,
@@ -173,74 +174,78 @@
 
         document.body.appendChild(renderer.domElement)
         document.addEventListener('mousedown', onDocumentMouseDown, false)
+        document.addEventListener('touchstart', onDocumentMouseDown)
         document.addEventListener('mousewheel', onDocumentMouseWheel, false)
         document.addEventListener('DOMMouseScroll', onDocumentMouseWheel, false)
         window.addEventListener( 'resize', onWindowResized, false)
-
-        //setInterval(decideCubeRotation, 200)
-
+        window.addEventListener("keypress", function(e) {
+          if (e.keyIdentifier === 'U+0043') //C
+            cubeShader.uniforms[ "uNormalScale" ].value.y *= -1
+        })
         onWindowResized( null )
       }
 
       function onWindowResized(event) {
-
         renderer.setSize( window.innerWidth, window.innerHeight )
         camera.projectionMatrix.makePerspective( fov, window.innerWidth / window.innerHeight, 1, 1100)
       }
 
       function onDocumentClick(event) {
-        var r = decideCubeRotation({x: event.x, y:event.y})
-        rotateCube(r, 0.5)
+        var mouse = {x: event.x, y:event.y}
+
+        if (event instanceof TouchEvent) {
+          if (event.touches.length > 1)
+            return
+          mouse = {x: event.changedTouches[0].clientX, y: event.changedTouches[0].clientY}
+        }
+
+        event.preventDefault()
       }
 
       function onDocumentMouseDown(event) {
         mouseDownStart = event.timeStamp
         event.preventDefault()
 
-        onPointerDownPointerX = event.clientX
-        onPointerDownPointerY = event.clientY
+        if (event instanceof TouchEvent) {
+          if (event.touches.length > 1) {
+            return
+          }
+          onPointerDownPointerX = event.changedTouches[0].clientX
+          onPointerDownPointerY = event.changedTouches[0].clientY
+        } else {
+          onPointerDownPointerX = event.clientX
+          onPointerDownPointerY = event.clientY
+        }
 
         onPointerDownLon = lon
         onPointerDownLat = lat
 
-        document.addEventListener( 'mousemove', onDocumentMouseMove, false )
-        document.addEventListener( 'mouseup', onDocumentMouseUp, false )
-
+        document.addEventListener('mousemove', onDocumentMouseMove, false)
+        document.addEventListener('mouseup', onDocumentMouseUp, false)
+        document.addEventListener('touchmove', onDocumentMouseMove, false)
+        document.addEventListener('touchend', onDocumentMouseUp, false)
       }
 
       function onDocumentMouseMove(event) {
-        lon = ( event.clientX - onPointerDownPointerX ) * 0.1 + onPointerDownLon
-        lat = ( event.clientY - onPointerDownPointerY ) * 0.1 + onPointerDownLat
-      }
-
-      function decideCubeRotation(mouse) {
-         var steph = window.innerHeight / 3,
-           stepw = window.innerWidth / 3
-         var cubeRotation = new THREE.Vector3(0,0,0)
-
-        //first vertical column
-        if (mouse.x < stepw)
-         cubeRotation.y = -Math.PI / 2.0
-        else
-          if (mouse.x > stepw * 2)
-            cubeRotation.y = Math.PI  / 2.0
-        //first horizontal row
-        if (mouse.y < steph)
-          cubeRotation.z = -Math.PI / 2.0
-        else
-          if (mouse.y > steph * 2)
-            cubeRotation.z = Math.PI / 2.0
-
-          return cubeRotation
+        if (event instanceof TouchEvent) {
+          if (event.touches.length > 1)
+            return
+          lon = ( event.changedTouches[0].clientX - onPointerDownPointerX ) * 0.1 + onPointerDownLon
+          lat = ( event.changedTouches[0].clientY - onPointerDownPointerY ) * 0.1 + onPointerDownLat
+        } else {
+          lon = ( event.clientX - onPointerDownPointerX ) * 0.1 + onPointerDownLon
+          lat = ( event.clientY - onPointerDownPointerY ) * 0.1 + onPointerDownLat
+        }
       }
 
       function onDocumentMouseUp(event) {
-        if (event.timeStamp - mouseDownStart < 310) {
-          onDocumentClick(event)
+        if (event.timeStamp - mouseDownStart < 160) {
+            onDocumentClick(event)
         }
         document.removeEventListener('mousemove', onDocumentMouseMove, false )
         document.removeEventListener('mouseup', onDocumentMouseUp, false )
-
+        document.removeEventListener('touchmove', onDocumentMouseMove, false)
+        document.removeEventListener('touchend', onDocumentMouseUp, false)
       }
 
       function onDocumentMouseWheel(event) {
@@ -263,34 +268,18 @@
         render()
       }
 
-     function rotateCube(vec, duration) {
-        var self = this
-        if (self.completed >= 0)
-          return
-        (function() {
-          var steps = duration / 0.025
-          var step = {x:vec.x / steps, y:vec.y / steps, z:vec.z / steps}
-          self.completed = steps
-          var interval = setInterval(function() {
-            if (self.completed-- <= 0) {
-              clearInterval(interval)
-              return
-            }
-            cube.rotation.x += step.x
-            cube.rotation.y += step.y
-            cube.rotation.z += step.z
-          }, 25)
-        })()
-      }
-
       function render() {
         var time = Date.now()
 
-        //lon += .15
+        lon += .15
 
         lat = Math.max(-85, Math.min(85, lat))
         phi = THREE.Math.degToRad(90 - lat)
         theta = THREE.Math.degToRad(lon)
+
+        cube.rotation.z = - 4 * Math.cos(phi)
+        cube.rotation.y = - 4 * Math.sin(phi) * Math.sin(theta) 
+        cube.rotation.x = - 4 * Math.cos(phi)
 
         camera.position.x = 100 * Math.sin(phi) * Math.cos(theta)
         camera.position.y = 100 * Math.cos(phi)
@@ -299,9 +288,7 @@
         camera.lookAt(scene.position)
 
         renderer.render(scene, camera)
-
       }
     </script>
-
   </body>
 </html>
